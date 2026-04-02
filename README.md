@@ -4,3 +4,4 @@ Collabborators:
 Guido Fajardo
 Gabriel Kleinschmidt
 Trigg Newton
+Hayden Aldridge
