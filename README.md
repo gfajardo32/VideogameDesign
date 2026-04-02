@@ -1,1 +1,4 @@
 # VideogameDesign
+
+Collabborators:
+Guido Fajardo
