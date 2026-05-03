@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(Rigidbody2D))]
@@ -6,62 +7,97 @@ public class ShopperAI : MonoBehaviour
 {
     [Header("Patrol")]
     public List<Transform> waypoints = new List<Transform>();
-    public float moveSpeed = 2f;
+    public float moveSpeed = 2.5f;
     public float waypointReachDistance = 0.2f;
 
     [Header("Pause at waypoints")]
     public float pauseMin = 0.5f;
-    public float pauseMax = 2f;
+    public float pauseMax = 1.5f;
+
+    [Header("Contact")]
+    public float contactRadius   = 0.7f;
+    public float contactCooldown = 2f;
 
     private Rigidbody2D rb;
-    private int currentWaypoint = 0;
-    private bool pausing = false;
-    private float pauseTimer = 0f;
+    private Transform   player;
+    private int         currentWaypoint = 0;
+    private bool        pausing         = false;
+    private float       pauseTimer      = 0f;
+    private bool        onCooldown      = false;
 
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
-        rb.gravityScale = 0f;
+        rb.gravityScale   = 0f;
         rb.freezeRotation = true;
-        rb.linearDamping = 8f;
+        rb.linearDamping  = 8f;
+        gameObject.layer  = 8; // NPC layer
+    }
+
+    void Start()
+    {
+        GameObject p = GameObject.FindGameObjectWithTag("Player");
+        if (p != null) player = p.transform;
     }
 
     void FixedUpdate()
     {
         if (GameManager.Instance != null && !GameManager.Instance.gameActive) return;
-        if (waypoints == null || waypoints.Count == 0) return;
 
-        if (pausing)
+        // Waypoint patrol
+        if (waypoints != null && waypoints.Count > 0)
         {
-            rb.linearVelocity = Vector2.zero;
-            pauseTimer -= Time.fixedDeltaTime;
-            if (pauseTimer <= 0f) pausing = false;
-            return;
+            if (pausing)
+            {
+                rb.linearVelocity = Vector2.zero;
+                pauseTimer -= Time.fixedDeltaTime;
+                if (pauseTimer <= 0f) pausing = false;
+            }
+            else
+            {
+                Transform target = waypoints[currentWaypoint];
+                Vector2 dir = ((Vector2)target.position - rb.position).normalized;
+                rb.linearVelocity = dir * moveSpeed;
+
+                if (Vector2.Distance(rb.position, target.position) < waypointReachDistance)
+                {
+                    currentWaypoint = (currentWaypoint + 1) % waypoints.Count;
+                    pausing    = true;
+                    pauseTimer = Random.Range(pauseMin, pauseMax);
+                }
+            }
         }
 
-        Transform target = waypoints[currentWaypoint];
-        Vector2 dir = ((Vector2)target.position - rb.position).normalized;
-        rb.linearVelocity = dir * moveSpeed;
-
-        if (Vector2.Distance(rb.position, target.position) < waypointReachDistance)
+        // Proximity-based contact
+        if (!onCooldown && player != null)
         {
-            currentWaypoint = (currentWaypoint + 1) % waypoints.Count;
-            pausing = true;
-            pauseTimer = Random.Range(pauseMin, pauseMax);
+            float dist = Vector2.Distance(rb.position, player.position);
+            if (dist < contactRadius)
+                StartCoroutine(TriggerContact());
         }
     }
 
-    void OnCollisionEnter2D(Collision2D col)
+    IEnumerator TriggerContact()
     {
-        if (col.gameObject.CompareTag("Player"))
+        onCooldown = true;
+
+        CartController cart = player?.GetComponent<CartController>();
+        if (cart != null) cart.ApplySlow(1f);
+
+        if (ShoppingList.Instance != null)
         {
-            // Nudge the player slightly on collision for chaos
-            Rigidbody2D playerRb = col.gameObject.GetComponent<Rigidbody2D>();
-            if (playerRb != null)
+            List<string> carried = ShoppingList.Instance.GetCollectedItems();
+            if (carried.Count > 0)
             {
-                Vector2 pushDir = (col.transform.position - transform.position).normalized;
-                playerRb.AddForce(pushDir * 3f, ForceMode2D.Impulse);
+                string item = carried[Random.Range(0, carried.Count)];
+                ShoppingList.Instance.DropItem(item);
+                if (ItemPickup.Registry.TryGetValue(item, out ItemPickup pickup))
+                    pickup.Respawn();
+                UIManager.Instance?.ShowNotification($"⚠️ Shopper bumped you! Dropped {item}!", 3f);
             }
         }
+
+        yield return new WaitForSeconds(contactCooldown);
+        onCooldown = false;
     }
 }

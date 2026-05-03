@@ -17,12 +17,16 @@ public class GameManager : MonoBehaviour
     public event System.Action         OnGameWin;
     public event System.Action         OnGameLose;
     public event System.Action<float>  OnTimerUpdate;
-    public event System.Action         OnAllItemsCollected; // prompt player to go to register
+    public event System.Action         OnAllItemsCollected;
 
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+
+        // Layer 6 = Player, Layer 8 = NPC
+        // NPCs should not physically push the player — contact is handled via triggers
+        Physics2D.IgnoreLayerCollision(6, 8, true);
     }
 
     void Start()
@@ -36,7 +40,6 @@ public class GameManager : MonoBehaviour
         gameActive    = true;
         OnGameStart?.Invoke();
 
-        // Listen for list complete to prompt register
         if (ShoppingList.Instance != null)
             ShoppingList.Instance.OnListComplete += HandleListComplete;
     }

@@ -15,9 +15,10 @@ public class CartController : MonoBehaviour
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
-        rb.gravityScale = 0f;
+        rb.gravityScale   = 0f;
         rb.freezeRotation = true;
-        rb.linearDamping = 8f;
+        rb.linearDamping  = 8f;
+        gameObject.layer  = 6; // Player layer — physics collision with NPCs (layer 8) is ignored
     }
 
     void Update()
@@ -42,7 +43,6 @@ public class CartController : MonoBehaviour
         float speed = isSlowed ? moveSpeed * slowMultiplier : moveSpeed;
         rb.linearVelocity = moveInput * speed;
 
-        // Rotate cart to face movement direction
         if (moveInput != Vector2.zero)
         {
             float angle = Mathf.Atan2(moveInput.y, moveInput.x) * Mathf.Rad2Deg - 90f;
@@ -52,7 +52,7 @@ public class CartController : MonoBehaviour
 
     public void ApplySlow(float duration)
     {
-        isSlowed = true;
+        isSlowed  = true;
         slowTimer = duration;
     }
 }

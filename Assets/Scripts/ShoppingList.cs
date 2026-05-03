@@ -6,12 +6,16 @@ public class ShoppingList : MonoBehaviour
     public static ShoppingList Instance { get; private set; }
 
     [Header("Starting items")]
-    public List<string> itemNames = new List<string> { "Milk", "Bread", "Eggs", "Cheese", "Apples" };
+    public List<string> itemNames = new List<string>
+    {
+        "Milk", "Bread", "Eggs", "Cheese", "Apples",
+        "Juice", "Butter", "Yogurt", "Cereal", "Bananas"
+    };
 
     private HashSet<string> collectedItems = new HashSet<string>();
 
     public event System.Action<string> OnItemCollected;
-    public event System.Action<string> OnItemDropped;   // fired when item is knocked loose
+    public event System.Action<string> OnItemDropped;
     public event System.Action         OnListComplete;
 
     void Awake()
@@ -33,7 +37,6 @@ public class ShoppingList : MonoBehaviour
             OnListComplete?.Invoke();
     }
 
-    /// Remove an item from the collected set (obstacle knocked it out of cart)
     public void DropItem(string itemName)
     {
         if (!collectedItems.Contains(itemName)) return;
