@@ -1,27 +1,31 @@
 using UnityEngine;
 using System.Collections;
 
-/// Pac-Man ghost style adult shopper NPC.
-/// Green dot while patrolling. Turns purple when chasing.
-/// Looks identical to NeutralShopper while calm — player can't tell them apart.
+/// Pac-Man ghost style security guard.
+/// Always shown as a blue dot — most persistent chaser in the store.
+/// Freezes the player on contact.
 [RequireComponent(typeof(Rigidbody2D))]
-public class ShopperAI : MonoBehaviour
+public class SecurityGuard : MonoBehaviour
 {
     [Header("Movement")]
-    public float patrolSpeed       = 1.4f;
-    public float baseChaseSpeed    = 2.2f;
-    public float dirChangeInterval = 2f;
+    public float patrolSpeed       = 1.2f;
+    public float baseChaseSpeed    = 2.8f;
+    public float chaseSpeedPerItem = 0.3f;
+    public float dirChangeInterval = 1.5f;
+
+    [Header("Grace Period")]
+    public float gracePeriod = 8f;
 
     [Header("Detection - Pac-Man style")]
-    public float detectionRadius    = 5f;
-    public float loseInterestRadius = 8.5f;
+    public float detectionRadius    = 6f;
+    public float loseInterestRadius = 10f;
     [Range(0f, 1f)]
-    public float loseInterestChance = 0.4f;
+    public float loseInterestChance = 0.15f; // very stubborn
 
     [Header("Contact")]
-    public float slowDuration    = 1f;
+    public float freezeDuration  = 3f;
     public float contactRadius   = 0.8f;
-    public float contactCooldown = 2.5f;
+    public float contactCooldown = 6f;
 
     [Header("Bounds")]
     public float boundX = 15f;
@@ -37,19 +41,20 @@ public class ShopperAI : MonoBehaviour
     private float          dirTimer          = 0f;
     private bool           onCooldown        = false;
     private float          loseInterestTimer = 0f;
+    private float          graceTimer        = 0f;
+    private bool           graceOver         = false;
 
-    static readonly Color PatrolColor = new Color(0.15f, 0.80f, 0.25f); // green
-    static readonly Color ChaseColor  = new Color(0.55f, 0.10f, 0.85f); // purple
+    static readonly Color GuardColor = new Color(0.15f, 0.35f, 1f); // blue dot always
 
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         rb.gravityScale   = 0f;
         rb.freezeRotation = true;
-        rb.linearDamping  = 4f;
+        rb.linearDamping  = 5f;
         gameObject.layer  = 8;
         sr = GetComponent<SpriteRenderer>();
-        if (sr) sr.color = PatrolColor;
+        if (sr) sr.color = GuardColor;
         PickNewPatrolDir();
     }
 
@@ -57,7 +62,7 @@ public class ShopperAI : MonoBehaviour
     {
         var p = GameObject.FindGameObjectWithTag("Player");
         if (p != null) player = p.transform;
-        dirTimer = Random.Range(0.5f, dirChangeInterval);
+        graceTimer = gracePeriod;
     }
 
     void FixedUpdate()
@@ -65,41 +70,54 @@ public class ShopperAI : MonoBehaviour
         if (GameManager.Instance != null && !GameManager.Instance.gameActive) return;
         if (player == null) return;
 
+        if (!graceOver)
+        {
+            graceTimer -= Time.fixedDeltaTime;
+            if (graceTimer <= 0f) graceOver = true;
+        }
+
         float dist = Vector2.Distance(rb.position, (Vector2)player.position);
 
-        if (state == AIState.Patrol)
+        if (graceOver)
         {
-            if (dist < detectionRadius)
+            if (state == AIState.Patrol)
             {
-                state = AIState.Chase;
-                loseInterestTimer = 0f;
-            }
-        }
-        else
-        {
-            if (dist < loseInterestRadius)
-            {
-                loseInterestTimer = 0f;
+                if (dist < detectionRadius)
+                {
+                    state = AIState.Chase;
+                    loseInterestTimer = 0f;
+                }
             }
             else
             {
-                loseInterestTimer += Time.fixedDeltaTime;
-                if (loseInterestTimer >= 1f)
+                if (dist < loseInterestRadius)
                 {
                     loseInterestTimer = 0f;
-                    if (Random.value < loseInterestChance)
-                        state = AIState.Patrol;
+                }
+                else
+                {
+                    loseInterestTimer += Time.fixedDeltaTime;
+                    if (loseInterestTimer >= 1f)
+                    {
+                        loseInterestTimer = 0f;
+                        if (Random.value < loseInterestChance)
+                            state = AIState.Patrol;
+                    }
                 }
             }
         }
 
+        // Always blue — no color change, but you'll know it's the guard
+        if (sr) sr.color = GuardColor;
+
         Vector2 moveVelocity;
 
-        if (state == AIState.Chase)
+        if (state == AIState.Chase && graceOver)
         {
+            int items = ShoppingList.Instance != null ? ShoppingList.Instance.CollectedCount : 0;
+            float speed = baseChaseSpeed + items * chaseSpeedPerItem;
             Vector2 dir = ((Vector2)player.position - rb.position).normalized;
-            moveVelocity = dir * baseChaseSpeed;
-            if (sr) sr.color = ChaseColor; // purple when chasing
+            moveVelocity = dir * speed;
         }
         else
         {
@@ -111,7 +129,6 @@ public class ShopperAI : MonoBehaviour
             if (pos.y < -boundY || pos.y > boundY) { patrolDir.y = -patrolDir.y; dirTimer = dirChangeInterval; }
 
             moveVelocity = patrolDir * patrolSpeed;
-            if (sr) sr.color = PatrolColor; // green while calm
         }
 
         rb.linearVelocity = moveVelocity;
@@ -123,11 +140,14 @@ public class ShopperAI : MonoBehaviour
     IEnumerator TriggerContact()
     {
         onCooldown = true;
+        state = AIState.Patrol;
+        PickNewPatrolDir();
+
         CartController cart = player?.GetComponent<CartController>();
-        if (cart != null) cart.ApplySlow(slowDuration);
-        DropObstacle drop = GetComponent<DropObstacle>();
-        if (drop != null) drop.TriggerDrop();
-        UIManager.Instance?.ShowNotification("Watch where you're going!", 2f);
+        if (cart != null) cart.ApplyFreeze(freezeDuration);
+
+        UIManager.Instance?.ShowNotification($"Busted! Frozen for {(int)freezeDuration}s!", 3f);
+
         yield return new WaitForSeconds(contactCooldown);
         onCooldown = false;
     }
@@ -136,6 +156,6 @@ public class ShopperAI : MonoBehaviour
     {
         float angle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
         patrolDir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-        dirTimer  = dirChangeInterval + Random.Range(-0.5f, 1.2f);
+        dirTimer  = dirChangeInterval + Random.Range(-0.3f, 0.8f);
     }
 }

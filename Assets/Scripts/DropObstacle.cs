@@ -4,13 +4,14 @@ using System.Collections.Generic;
 
 /// When the player collides with this obstacle, 1-2 of their collected
 /// items are knocked loose and respawn at their original positions.
+/// Can be triggered via OnCollisionEnter2D or the public TriggerDrop() method.
 public class DropObstacle : MonoBehaviour
 {
     [Header("Settings")]
     public float cooldown     = 3f;
     public int   maxDropCount = 2;
 
-    private bool         onCooldown = false;
+    private bool           onCooldown = false;
     private SpriteRenderer sr;
 
     void Start() => sr = GetComponent<SpriteRenderer>();
@@ -18,6 +19,12 @@ public class DropObstacle : MonoBehaviour
     void OnCollisionEnter2D(Collision2D col)
     {
         if (!col.gameObject.CompareTag("Player")) return;
+        TriggerDrop();
+    }
+
+    /// Called directly by AI scripts that use proximity detection instead of collision events.
+    public void TriggerDrop()
+    {
         if (onCooldown) return;
         if (GameManager.Instance == null || !GameManager.Instance.gameActive) return;
         if (ShoppingList.Instance == null) return;
@@ -41,7 +48,7 @@ public class DropObstacle : MonoBehaviour
             if (ItemPickup.Registry.TryGetValue(item, out ItemPickup pickup))
                 pickup.Respawn();
 
-            UIManager.Instance?.ShowNotification($"???? Dropped {item}!\nGo pick it up!", 3f);
+            UIManager.Instance?.ShowNotification($"Dropped {item}! Go pick it up!", 3f);
         }
 
         StartCoroutine(CooldownRoutine());

@@ -4,13 +4,16 @@ using UnityEngine;
 public class CartController : MonoBehaviour
 {
     [Header("Movement")]
-    public float moveSpeed = 5f;
+    public float moveSpeed     = 5f;
     public float slowMultiplier = 0.4f;
 
-    private Rigidbody2D rb;
-    private Vector2 moveInput;
-    private bool isSlowed = false;
-    private float slowTimer = 0f;
+    private Rigidbody2D    rb;
+    private SpriteRenderer sr;
+    private Vector2        moveInput;
+    private bool           isSlowed  = false;
+    private float          slowTimer = 0f;
+    private bool           isFrozen  = false;
+    private float          freezeTimer = 0f;
 
     void Awake()
     {
@@ -18,7 +21,8 @@ public class CartController : MonoBehaviour
         rb.gravityScale   = 0f;
         rb.freezeRotation = true;
         rb.linearDamping  = 8f;
-        gameObject.layer  = 6; // Player layer — physics collision with NPCs (layer 8) is ignored
+        gameObject.layer  = 6;
+        sr = GetComponent<SpriteRenderer>();
     }
 
     void Update()
@@ -26,6 +30,19 @@ public class CartController : MonoBehaviour
         if (GameManager.Instance != null && !GameManager.Instance.gameActive)
         {
             moveInput = Vector2.zero;
+            return;
+        }
+
+        // Freeze overrides slow
+        if (isFrozen)
+        {
+            freezeTimer -= Time.deltaTime;
+            moveInput = Vector2.zero;
+            if (freezeTimer <= 0f)
+            {
+                isFrozen = false;
+                if (sr) sr.color = Color.white;
+            }
             return;
         }
 
@@ -40,6 +57,12 @@ public class CartController : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (isFrozen)
+        {
+            rb.linearVelocity = Vector2.zero;
+            return;
+        }
+
         float speed = isSlowed ? moveSpeed * slowMultiplier : moveSpeed;
         rb.linearVelocity = moveInput * speed;
 
@@ -52,7 +75,16 @@ public class CartController : MonoBehaviour
 
     public void ApplySlow(float duration)
     {
+        if (isFrozen) return;
         isSlowed  = true;
         slowTimer = duration;
+    }
+
+    public void ApplyFreeze(float duration)
+    {
+        isFrozen    = true;
+        freezeTimer = duration;
+        isSlowed    = false;
+        if (sr) sr.color = new Color(0.4f, 0.7f, 1f); // flash blue when frozen
     }
 }

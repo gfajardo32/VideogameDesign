@@ -63,12 +63,17 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    void Update()
+    {
+        UpdateCartStatus();
+    }
+
     void BuildShoppingListUI()
     {
         if (shoppingListContainer == null || listItemPrefab == null) return;
         foreach (string item in ShoppingList.Instance.itemNames)
             AddListEntry(item);
-        UpdateItemsRemaining();
+        UpdateCartStatus();
     }
 
     void AddListEntry(string item)
@@ -88,25 +93,22 @@ public class UIManager : MonoBehaviour
         int m = Mathf.FloorToInt(t / 60f), s = Mathf.FloorToInt(t % 60f);
         timerText.text = $"{m:00}:{s:00}";
 
-        // Colour progression: white -> yellow -> orange -> red
         if (t < 15f)
             timerText.color = Color.red;
         else if (t < 25f)
-            timerText.color = new Color(1f, 0.4f, 0f);   // orange
+            timerText.color = new Color(1f, 0.4f, 0f);
         else if (t < 45f)
-            timerText.color = new Color(1f, 0.85f, 0f);  // yellow
+            timerText.color = new Color(1f, 0.85f, 0f);
         else
             timerText.color = Color.white;
 
-        // Start pulse when under 15s
         if (t < 15f && timerPulseCoroutine == null)
             timerPulseCoroutine = StartCoroutine(PulseTimer());
 
-        // One-time 30s warning
         if (!lowTimeWarningShown && t <= 30f && t > 0f)
         {
             lowTimeWarningShown = true;
-            QueueNotification("⚠️ 30 SECONDS LEFT! HURRY!", 3f);
+            QueueNotification("30 seconds left! Hurry!", 3f);
         }
     }
 
@@ -138,16 +140,16 @@ public class UIManager : MonoBehaviour
     void OnItemCollected(string itemName)
     {
         if (listEntries.TryGetValue(itemName, out var txt))
-            txt.text = $"<s>[✓] {itemName}</s>";
-        UpdateItemsRemaining();
+            txt.text = $"[In Cart] {itemName}";
+        UpdateCartStatus();
         if (registerBanner) registerBanner.SetActive(false);
     }
 
     void OnItemDropped(string itemName)
     {
         if (listEntries.TryGetValue(itemName, out var txt))
-            txt.text = $"<color=red>[ ] {itemName} ⚠ dropped!</color>";
-        UpdateItemsRemaining();
+            txt.text = $"[ ] {itemName} - DROPPED!";
+        UpdateCartStatus();
         if (registerBanner) registerBanner.SetActive(false);
         StartCoroutine(FlashListEntry(itemName));
     }
@@ -164,19 +166,29 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    void UpdateItemsRemaining()
+    void UpdateCartStatus()
     {
         if (itemsRemainingText == null || ShoppingList.Instance == null) return;
-        itemsRemainingText.text = $"Items Left: {ShoppingList.Instance.RemainingCount}";
+        var list = ShoppingList.Instance;
+
+        // Update banked items in list
+        foreach (var kvp in listEntries)
+        {
+            if (list.IsBanked(kvp.Key))
+                kvp.Value.text = $"[DONE] {kvp.Key}";
+        }
+
+        itemsRemainingText.text =
+            $"Cart: {list.InCartCount}/{list.cartCapacity}   " +
+            $"Banked: {list.BankedCount}/{list.TotalCount}";
     }
 
     void ShowRegisterBanner()
     {
         if (registerBanner) registerBanner.SetActive(true);
-        QueueNotification("🛒 ALL ITEMS! Head to the Register!", 4f);
+        QueueNotification("All items collected! Head to the Register!", 4f);
     }
 
-    // Public entry point — routes through queue so nothing gets lost
     public void ShowNotification(string msg, float duration) => QueueNotification(msg, duration);
 
     void QueueNotification(string msg, float duration)

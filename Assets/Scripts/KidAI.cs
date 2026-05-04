@@ -1,21 +1,29 @@
 using UnityEngine;
 using System.Collections;
-using System.Collections.Generic;
 
+public enum ChaseStyle { Direct, Ahead, Flank, Shy }
+
+/// Pac-Man ghost style kid NPC.
+/// Always shown as a small red dot — dangerous on contact.
 [RequireComponent(typeof(Rigidbody2D))]
 public class KidAI : MonoBehaviour
 {
-    public enum ChaseStyle { Direct, Ahead, Flank, Shy }
+    [Header("Personality")]
+    public ChaseStyle chaseStyle = ChaseStyle.Direct;
 
     [Header("Movement")]
-    public ChaseStyle chaseStyle         = ChaseStyle.Direct;
-    public float patrolSpeed             = 1.5f;
-    public float baseChaseSpeed          = 2.5f;
-    public float chaseSpeedPerItem       = 0.4f;
-    public float detectionRadius         = 6f;
-    public float directionChangeInterval = 0.8f;
+    public float patrolSpeed       = 1.6f;
+    public float baseChaseSpeed    = 2.4f;
+    public float chaseSpeedPerItem = 0.35f;
+    public float dirChangeInterval = 1.8f;
 
-    [Header("Separation from other kids")]
+    [Header("Detection - Pac-Man style")]
+    public float detectionRadius    = 5.5f;
+    public float loseInterestRadius = 9f;
+    [Range(0f, 1f)]
+    public float loseInterestChance = 0.35f;
+
+    [Header("Separation")]
     public float separationRadius = 2.5f;
     public float separationForce  = 3f;
 
@@ -24,33 +32,37 @@ public class KidAI : MonoBehaviour
     public float contactCooldown = 2f;
 
     [Header("Bounds")]
-    public float boundX = 14f;
+    public float boundX = 15f;
     public float boundY = 12f;
 
-    private Rigidbody2D rb;
-    private Transform   player;
-    private Vector2     currentDirection;
-    private float       dirTimer   = 0f;
-    private bool        isChasing  = false;
-    private bool        onCooldown = false;
+    private enum AIState { Patrol, Chase }
+    private AIState state = AIState.Patrol;
 
-    // Used by Flank style to pick a consistent side
-    private float flankSide;
+    private Rigidbody2D    rb;
+    private SpriteRenderer sr;
+    private Transform      player;
+    private Vector2        patrolDir;
+    private float          dirTimer          = 0f;
+    private bool           onCooldown        = false;
+    private float          loseInterestTimer = 0f;
+
+    static readonly Color KidColor = new Color(0.95f, 0.1f, 0.1f); // red dot always
 
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         rb.gravityScale   = 0f;
         rb.freezeRotation = true;
-        rb.linearDamping  = 3f;
+        rb.linearDamping  = 4f;
         gameObject.layer  = 8;
-        flankSide         = Random.value > 0.5f ? 1f : -1f;
-        PickNewDirection();
+        sr = GetComponent<SpriteRenderer>();
+        if (sr) sr.color = KidColor;
+        PickNewPatrolDir();
     }
 
     void Start()
     {
-        GameObject p = GameObject.FindGameObjectWithTag("Player");
+        var p = GameObject.FindGameObjectWithTag("Player");
         if (p != null) player = p.transform;
     }
 
@@ -59,82 +71,92 @@ public class KidAI : MonoBehaviour
         if (GameManager.Instance != null && !GameManager.Instance.gameActive) return;
         if (player == null) return;
 
-        float dist = Vector2.Distance(rb.position, player.position);
-        isChasing = dist < detectionRadius;
+        float dist = Vector2.Distance(rb.position, (Vector2)player.position);
 
-        float chaseSpeed = baseChaseSpeed
-            + (ShoppingList.Instance != null ? ShoppingList.Instance.CollectedCount * chaseSpeedPerItem : 0f);
+        if (state == AIState.Patrol)
+        {
+            if (dist < detectionRadius)
+            {
+                state = AIState.Chase;
+                loseInterestTimer = 0f;
+            }
+        }
+        else
+        {
+            if (dist < loseInterestRadius)
+            {
+                loseInterestTimer = 0f;
+            }
+            else
+            {
+                loseInterestTimer += Time.fixedDeltaTime;
+                if (loseInterestTimer >= 1f)
+                {
+                    loseInterestTimer = 0f;
+                    if (Random.value < loseInterestChance)
+                        state = AIState.Patrol;
+                }
+            }
+        }
+
+        // Always red — no color change between states
+        if (sr) sr.color = KidColor;
 
         Vector2 moveVelocity;
 
-        if (isChasing)
+        if (state == AIState.Chase)
         {
-            Vector2 target = GetChaseTarget(chaseSpeed);
-            Vector2 dir = (target - rb.position).normalized;
-            moveVelocity = dir * chaseSpeed;
+            int items = ShoppingList.Instance != null ? ShoppingList.Instance.CollectedCount : 0;
+            float speed = baseChaseSpeed + items * chaseSpeedPerItem;
+            moveVelocity = (GetChaseTarget() - rb.position).normalized * speed;
         }
         else
         {
             dirTimer -= Time.fixedDeltaTime;
-            if (dirTimer <= 0f) PickNewDirection();
+            if (dirTimer <= 0f) PickNewPatrolDir();
 
             Vector2 pos = rb.position;
-            if (Mathf.Abs(pos.x) > boundX || Mathf.Abs(pos.y) > boundY)
-            {
-                currentDirection = -currentDirection;
-                dirTimer = directionChangeInterval;
-            }
+            if (pos.x < -boundX || pos.x > boundX) { patrolDir.x = -patrolDir.x; dirTimer = dirChangeInterval; }
+            if (pos.y < -boundY || pos.y > boundY) { patrolDir.y = -patrolDir.y; dirTimer = dirChangeInterval; }
 
-            moveVelocity = currentDirection * patrolSpeed;
+            moveVelocity = patrolDir * patrolSpeed;
         }
 
-        // Separation: steer away from nearby KidAI instances so they spread out
+        // Separation steering
         Vector2 separation = Vector2.zero;
         foreach (var other in FindObjectsByType<KidAI>(FindObjectsSortMode.None))
         {
             if (other == this) continue;
-            float d = Vector2.Distance(rb.position, other.rb.position);
+            float d = Vector2.Distance(rb.position, (Vector2)other.transform.position);
             if (d < separationRadius && d > 0.01f)
-            {
-                separation += (rb.position - other.rb.position).normalized * (separationRadius - d);
-            }
+                separation += (rb.position - (Vector2)other.transform.position).normalized * (separationRadius - d);
         }
         moveVelocity += separation * separationForce * Time.fixedDeltaTime;
 
         rb.linearVelocity = moveVelocity;
 
-        // Proximity contact check
         if (!onCooldown && dist < contactRadius)
             StartCoroutine(TriggerContact());
     }
 
-    Vector2 GetChaseTarget(float chaseSpeed)
+    Vector2 GetChaseTarget()
     {
-        Vector2 playerPos = player.position;
+        Vector2 playerPos = (Vector2)player.position;
+        Rigidbody2D playerRb = player.GetComponent<Rigidbody2D>();
+        Vector2 playerVel = playerRb != null ? playerRb.linearVelocity : Vector2.zero;
 
         switch (chaseStyle)
         {
             case ChaseStyle.Ahead:
-                // Target 3 units ahead of where the player is moving
-                Rigidbody2D playerRb = player.GetComponent<Rigidbody2D>();
-                Vector2 playerVel = playerRb != null ? playerRb.linearVelocity : Vector2.zero;
                 return playerPos + playerVel.normalized * 3f;
-
             case ChaseStyle.Flank:
-                // Target a point perpendicular to the player-to-me direction
-                Vector2 toPlayer = (playerPos - rb.position).normalized;
-                Vector2 perp     = new Vector2(-toPlayer.y, toPlayer.x) * flankSide;
+                Vector2 toPlayer = playerPos - rb.position;
+                Vector2 perp = new Vector2(-toPlayer.y, toPlayer.x).normalized;
                 return playerPos + perp * 2.5f;
-
             case ChaseStyle.Shy:
-                // Like Clyde: chase when far, wander away when close
-                float d = Vector2.Distance(rb.position, playerPos);
-                if (d > 4f)
-                    return playerPos;
-                else
-                    return rb.position + (rb.position - playerPos).normalized * 3f; // run away
-                    
-            case ChaseStyle.Direct:
+                if (Vector2.Distance(rb.position, playerPos) < 3f)
+                    return rb.position - (playerPos - rb.position).normalized * 2f;
+                return playerPos;
             default:
                 return playerPos;
         }
@@ -143,34 +165,17 @@ public class KidAI : MonoBehaviour
     IEnumerator TriggerContact()
     {
         onCooldown = true;
-        PickNewDirection();
-
-        CartController cart = player.GetComponent<CartController>();
-        if (cart != null) cart.ApplySlow(1.5f);
-
-        if (ShoppingList.Instance != null)
-        {
-            List<string> carried = ShoppingList.Instance.GetCollectedItems();
-            if (carried.Count > 0)
-            {
-                string item = carried[Random.Range(0, carried.Count)];
-                ShoppingList.Instance.DropItem(item);
-                if (ItemPickup.Registry.TryGetValue(item, out ItemPickup pickup))
-                    pickup.Respawn();
-                UIManager.Instance?.ShowNotification($"⚠️ A kid bumped you! Dropped {item}!", 3f);
-            }
-        }
-
+        DropObstacle drop = GetComponent<DropObstacle>();
+        if (drop != null) drop.TriggerDrop();
+        UIManager.Instance?.ShowNotification("A kid crashed into your cart!", 2f);
         yield return new WaitForSeconds(contactCooldown);
         onCooldown = false;
     }
 
-    void PickNewDirection()
+    void PickNewPatrolDir()
     {
         float angle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-        currentDirection = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-        dirTimer = directionChangeInterval + Random.Range(-0.2f, 0.3f);
+        patrolDir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+        dirTimer  = dirChangeInterval + Random.Range(-0.4f, 1f);
     }
-
-    void OnCollisionEnter2D(Collision2D col) => PickNewDirection();
 }

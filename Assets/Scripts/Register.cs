@@ -10,22 +10,40 @@ public class Register : MonoBehaviour
         if (triggered) return;
         if (GameManager.Instance == null || !GameManager.Instance.gameActive) return;
 
-        int remaining = ShoppingList.Instance != null ? ShoppingList.Instance.RemainingCount : 1;
+        ShoppingList list = ShoppingList.Instance;
+        if (list == null) return;
 
-        if (remaining == 0)
+        if (list.InCartCount > 0)
+        {
+            int justBanked = list.InCartCount;
+            list.BankItems();
+            triggered = true;
+
+            if (list.IsComplete)
+            {
+                GameManager.Instance.WinGame();
+            }
+            else
+            {
+                UIManager.Instance?.ShowNotification(
+                    $"Dropped off {justBanked} item{(justBanked > 1 ? "s" : "")}! Still need {list.RemainingCount} more.", 3f);
+            }
+        }
+        else if (list.IsComplete)
         {
             triggered = true;
             GameManager.Instance.WinGame();
         }
         else
         {
-            UIManager.Instance?.ShowNotification($"Still need {remaining} item{(remaining > 1 ? "s" : "")}!", 2f);
+            UIManager.Instance?.ShowNotification(
+                $"Cart is empty! Grab {list.RemainingCount} more item{(list.RemainingCount > 1 ? "s" : "")}.", 2f);
         }
     }
 
     void OnTriggerExit2D(Collider2D other)
     {
         if (other.CompareTag("Player"))
-            triggered = false; // allow re-entry after collecting more items
+            triggered = false;
     }
 }

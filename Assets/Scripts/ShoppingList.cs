@@ -5,14 +5,18 @@ public class ShoppingList : MonoBehaviour
 {
     public static ShoppingList Instance { get; private set; }
 
-    [Header("Starting items")]
+    [Header("Items")]
     public List<string> itemNames = new List<string>
     {
         "Milk", "Bread", "Eggs", "Cheese", "Apples",
         "Juice", "Butter", "Yogurt", "Cereal", "Bananas"
     };
 
-    private HashSet<string> collectedItems = new HashSet<string>();
+    [Header("Cart")]
+    public int cartCapacity = 4;
+
+    private HashSet<string> inCart  = new HashSet<string>(); // currently carrying
+    private HashSet<string> banked  = new HashSet<string>(); // safely deposited at register
 
     public event System.Action<string> OnItemCollected;
     public event System.Action<string> OnItemDropped;
@@ -26,29 +30,46 @@ public class ShoppingList : MonoBehaviour
 
     public void CollectItem(string itemName)
     {
-        if (collectedItems.Contains(itemName)) return;
+        if (inCart.Contains(itemName) || banked.Contains(itemName)) return;
         if (!itemNames.Contains(itemName)) return;
 
-        collectedItems.Add(itemName);
-        OnItemCollected?.Invoke(itemName);
-        Debug.Log($"[ShoppingList] Collected: {itemName} ({collectedItems.Count}/{itemNames.Count})");
+        if (inCart.Count >= cartCapacity)
+        {
+            UIManager.Instance?.ShowNotification($"Cart is full! ({cartCapacity}/{cartCapacity}) Drop off at the register first!", 2.5f);
+            return;
+        }
 
-        if (collectedItems.Count >= itemNames.Count)
+        inCart.Add(itemName);
+        OnItemCollected?.Invoke(itemName);
+        Debug.Log($"[ShoppingList] In cart: {itemName} ({inCart.Count}/{cartCapacity})");
+    }
+
+    /// Called by Register — moves everything in cart to banked
+    public void BankItems()
+    {
+        foreach (var item in inCart)
+            banked.Add(item);
+        inCart.Clear();
+        Debug.Log($"[ShoppingList] Banked. Total banked: {banked.Count}/{itemNames.Count}");
+        if (banked.Count >= itemNames.Count)
             OnListComplete?.Invoke();
     }
 
     public void DropItem(string itemName)
     {
-        if (!collectedItems.Contains(itemName)) return;
-        collectedItems.Remove(itemName);
+        if (!inCart.Contains(itemName)) return;
+        inCart.Remove(itemName);
         OnItemDropped?.Invoke(itemName);
-        Debug.Log($"[ShoppingList] Dropped: {itemName} ({collectedItems.Count}/{itemNames.Count})");
+        Debug.Log($"[ShoppingList] Dropped: {itemName}");
     }
 
-    public List<string> GetCollectedItems() => new List<string>(collectedItems);
-
-    public bool IsCollected(string itemName) => collectedItems.Contains(itemName);
-    public int CollectedCount => collectedItems.Count;
-    public int TotalCount     => itemNames.Count;
-    public int RemainingCount => itemNames.Count - collectedItems.Count;
+    public List<string> GetCollectedItems() => new List<string>(inCart);
+    public bool IsCollected(string itemName)  => inCart.Contains(itemName) || banked.Contains(itemName);
+    public bool IsBanked(string itemName)     => banked.Contains(itemName);
+    public int  CollectedCount  => inCart.Count + banked.Count;
+    public int  InCartCount     => inCart.Count;
+    public int  BankedCount     => banked.Count;
+    public int  TotalCount      => itemNames.Count;
+    public int  RemainingCount  => itemNames.Count - inCart.Count - banked.Count; // still on shelves
+    public bool IsComplete      => banked.Count >= itemNames.Count;
 }
