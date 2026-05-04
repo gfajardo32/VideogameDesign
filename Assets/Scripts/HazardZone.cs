@@ -11,7 +11,10 @@ public class HazardZone : MonoBehaviour
 
         CartController cart = other.GetComponent<CartController>();
         if (cart != null)
+        {
             cart.ApplySlow(slowDuration);
+            SfxPlayer.Play("wet-floor");
+        }
     }
 
     void OnTriggerStay2D(Collider2D other)

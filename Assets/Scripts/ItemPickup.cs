@@ -49,6 +49,7 @@ public class ItemPickup : MonoBehaviour
         if (collected) return;
         collected = true;
         ShoppingList.Instance?.CollectItem(itemName);
+        SfxPlayer.Play("item-pickup");
         gameObject.SetActive(false);
     }
 

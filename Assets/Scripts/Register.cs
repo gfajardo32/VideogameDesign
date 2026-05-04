@@ -18,6 +18,7 @@ public class Register : MonoBehaviour
             int justBanked = list.InCartCount;
             list.BankItems();
             triggered = true;
+            SfxPlayer.Play("register-checkout");
 
             if (list.IsComplete)
             {
@@ -32,6 +33,7 @@ public class Register : MonoBehaviour
         else if (list.IsComplete)
         {
             triggered = true;
+            SfxPlayer.Play("register-checkout");
             GameManager.Instance.WinGame();
         }
         else

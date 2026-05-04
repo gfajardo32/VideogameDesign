@@ -127,6 +127,7 @@ public class ShopperAI : MonoBehaviour
         if (cart != null) cart.ApplySlow(slowDuration);
         DropObstacle drop = GetComponent<DropObstacle>();
         if (drop != null) drop.TriggerDrop();
+        SfxPlayer.Play("cart-bump");
         UIManager.Instance?.ShowNotification("Watch where you're going!", 2f);
         yield return new WaitForSeconds(contactCooldown);
         onCooldown = false;

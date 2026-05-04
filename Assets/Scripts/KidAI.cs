@@ -167,6 +167,7 @@ public class KidAI : MonoBehaviour
         onCooldown = true;
         DropObstacle drop = GetComponent<DropObstacle>();
         if (drop != null) drop.TriggerDrop();
+        SfxPlayer.Play("cart-bump");
         UIManager.Instance?.ShowNotification("A kid crashed into your cart!", 2f);
         yield return new WaitForSeconds(contactCooldown);
         onCooldown = false;

@@ -12,6 +12,7 @@ public class GameManager : MonoBehaviour
     public bool gameActive = false;
 
     private float timeRemaining;
+    private bool  warned30s;
 
     public event System.Action         OnGameStart;
     public event System.Action         OnGameWin;
@@ -38,6 +39,7 @@ public class GameManager : MonoBehaviour
     {
         timeRemaining = timeLimit;
         gameActive    = true;
+        warned30s     = false;
         OnGameStart?.Invoke();
 
         if (ShoppingList.Instance != null)
@@ -54,6 +56,11 @@ public class GameManager : MonoBehaviour
         if (!gameActive) return;
         timeRemaining -= Time.deltaTime;
         OnTimerUpdate?.Invoke(timeRemaining);
+        if (!warned30s && timeRemaining <= 30f)
+        {
+            warned30s = true;
+            SfxPlayer.Play("30s-warning");
+        }
         if (timeRemaining <= 0f)
         {
             timeRemaining = 0f;

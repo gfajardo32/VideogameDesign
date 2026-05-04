@@ -60,6 +60,7 @@ public class ShoppingList : MonoBehaviour
         if (!inCart.Contains(itemName)) return;
         inCart.Remove(itemName);
         OnItemDropped?.Invoke(itemName);
+        SfxPlayer.Play("item-drop");
         Debug.Log($"[ShoppingList] Dropped: {itemName}");
     }
 

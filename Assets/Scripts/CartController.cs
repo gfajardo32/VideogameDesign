@@ -7,6 +7,10 @@ public class CartController : MonoBehaviour
     public float moveSpeed     = 5f;
     public float slowMultiplier = 0.4f;
 
+    [Header("Footsteps")]
+    public float footstepInterval = 0.35f;
+    [Range(0f, 1f)] public float footstepVolume = 0.5f;
+
     private Rigidbody2D    rb;
     private SpriteRenderer sr;
     private Vector2        moveInput;
@@ -14,6 +18,7 @@ public class CartController : MonoBehaviour
     private float          slowTimer = 0f;
     private bool           isFrozen  = false;
     private float          freezeTimer = 0f;
+    private float          footstepTimer = 0f;
 
     void Awake()
     {
@@ -52,6 +57,20 @@ public class CartController : MonoBehaviour
         {
             slowTimer -= Time.deltaTime;
             if (slowTimer <= 0f) isSlowed = false;
+        }
+
+        if (moveInput != Vector2.zero)
+        {
+            footstepTimer -= Time.deltaTime;
+            if (footstepTimer <= 0f)
+            {
+                SfxPlayer.Play("footstep", footstepVolume);
+                footstepTimer = isSlowed ? footstepInterval / slowMultiplier : footstepInterval;
+            }
+        }
+        else
+        {
+            footstepTimer = 0f;
         }
     }
 
