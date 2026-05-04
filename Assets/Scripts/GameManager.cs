@@ -30,10 +30,7 @@ public class GameManager : MonoBehaviour
         Physics2D.IgnoreLayerCollision(6, 8, true);
     }
 
-    void Start()
-    {
-        StartGame();
-    }
+    // Game no longer auto-starts. StartScreen invokes StartGame() when the player clicks Play.
 
     public void StartGame()
     {
