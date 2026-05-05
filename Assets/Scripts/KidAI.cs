@@ -3,8 +3,6 @@ using System.Collections;
 
 public enum ChaseStyle { Direct, Ahead, Flank, Shy }
 
-/// Pac-Man ghost style kid NPC.
-/// Always shown as a small red dot — dangerous on contact.
 [RequireComponent(typeof(Rigidbody2D))]
 public class KidAI : MonoBehaviour
 {
@@ -15,9 +13,11 @@ public class KidAI : MonoBehaviour
     public float patrolSpeed       = 1.6f;
     public float baseChaseSpeed    = 2.4f;
     public float chaseSpeedPerItem = 0.35f;
+    public float fleeSpeed         = 3f;
+    public float fleeDuration      = 5f;
     public float dirChangeInterval = 1.8f;
 
-    [Header("Detection - Pac-Man style")]
+    [Header("Detection")]
     public float detectionRadius    = 5.5f;
     public float loseInterestRadius = 9f;
     [Range(0f, 1f)]
@@ -35,18 +35,23 @@ public class KidAI : MonoBehaviour
     public float boundX = 15f;
     public float boundY = 12f;
 
-    private enum AIState { Patrol, Chase }
+    [Header("Sprites ??? assign via GroceryRush/Assign Sprites")]
+    public Sprite spriteWalkRight;
+    public Sprite spriteIdleDown;
+    public Sprite spriteIdleUp;
+
+    private enum AIState { Patrol, Chase, Flee }
     private AIState state = AIState.Patrol;
 
     private Rigidbody2D    rb;
     private SpriteRenderer sr;
     private Transform      player;
     private Vector2        patrolDir;
+    private Vector2        fleeDir;
+    private float          fleeTimer         = 0f;
     private float          dirTimer          = 0f;
     private bool           onCooldown        = false;
     private float          loseInterestTimer = 0f;
-
-    static readonly Color KidColor = new Color(0.95f, 0.1f, 0.1f); // red dot always
 
     void Awake()
     {
@@ -56,7 +61,7 @@ public class KidAI : MonoBehaviour
         rb.linearDamping  = 4f;
         gameObject.layer  = 8;
         sr = GetComponent<SpriteRenderer>();
-        if (sr) sr.color = KidColor;
+        if (sr) sr.color = Color.white;
         PickNewPatrolDir();
     }
 
@@ -73,15 +78,30 @@ public class KidAI : MonoBehaviour
 
         float dist = Vector2.Distance(rb.position, (Vector2)player.position);
 
-        if (state == AIState.Patrol)
+        // ---- Flee overrides everything ----
+        if (state == AIState.Flee)
         {
-            if (dist < detectionRadius)
+            fleeTimer -= Time.fixedDeltaTime;
+            if (fleeTimer <= 0f)
             {
-                state = AIState.Chase;
-                loseInterestTimer = 0f;
+                state = AIState.Patrol;
+                PickNewPatrolDir();
+            }
+            else
+            {
+                Vector2 awayFromPlayer = (rb.position - (Vector2)player.position).normalized;
+                fleeDir = Vector2.Lerp(fleeDir, awayFromPlayer, 3f * Time.fixedDeltaTime).normalized;
+                rb.linearVelocity = fleeDir * fleeSpeed;
+                UpdateSprite(rb.linearVelocity);
+                return;
             }
         }
-        else
+
+        if (state == AIState.Patrol)
+        {
+            if (dist < detectionRadius) { state = AIState.Chase; loseInterestTimer = 0f; }
+        }
+        else if (state == AIState.Chase)
         {
             if (dist < loseInterestRadius)
             {
@@ -93,14 +113,10 @@ public class KidAI : MonoBehaviour
                 if (loseInterestTimer >= 1f)
                 {
                     loseInterestTimer = 0f;
-                    if (Random.value < loseInterestChance)
-                        state = AIState.Patrol;
+                    if (Random.value < loseInterestChance) state = AIState.Patrol;
                 }
             }
         }
-
-        // Always red — no color change between states
-        if (sr) sr.color = KidColor;
 
         Vector2 moveVelocity;
 
@@ -122,7 +138,7 @@ public class KidAI : MonoBehaviour
             moveVelocity = patrolDir * patrolSpeed;
         }
 
-        // Separation steering
+        // Separation steering (skip during flee ??? already handled above)
         Vector2 separation = Vector2.zero;
         foreach (var other in FindObjectsByType<KidAI>(FindObjectsSortMode.None))
         {
@@ -134,9 +150,35 @@ public class KidAI : MonoBehaviour
         moveVelocity += separation * separationForce * Time.fixedDeltaTime;
 
         rb.linearVelocity = moveVelocity;
+        UpdateSprite(moveVelocity);
 
         if (!onCooldown && dist < contactRadius)
             StartCoroutine(TriggerContact());
+    }
+
+    void UpdateSprite(Vector2 vel)
+    {
+        if (sr == null) return;
+        bool moving = vel.sqrMagnitude > 0.05f;
+
+        if (!moving)
+        {
+            if (spriteIdleDown) { sr.sprite = spriteIdleDown; sr.flipX = false; }
+            return;
+        }
+
+        if (Mathf.Abs(vel.x) >= Mathf.Abs(vel.y))
+        {
+            if (spriteWalkRight) { sr.sprite = spriteWalkRight; sr.flipX = vel.x < 0; }
+        }
+        else if (vel.y > 0)
+        {
+            if (spriteIdleUp) { sr.sprite = spriteIdleUp; sr.flipX = false; }
+        }
+        else
+        {
+            if (spriteIdleDown) { sr.sprite = spriteIdleDown; sr.flipX = false; }
+        }
     }
 
     Vector2 GetChaseTarget()
@@ -165,10 +207,17 @@ public class KidAI : MonoBehaviour
     IEnumerator TriggerContact()
     {
         onCooldown = true;
+
         DropObstacle drop = GetComponent<DropObstacle>();
         if (drop != null) drop.TriggerDrop();
         SfxPlayer.Play("cart-bump");
         UIManager.Instance?.ShowNotification("A kid crashed into your cart!", 2f);
+
+        // Flee away from the player for fleeDuration seconds
+        fleeDir   = (rb.position - (Vector2)player.position).normalized;
+        fleeTimer = fleeDuration;
+        state     = AIState.Flee;
+
         yield return new WaitForSeconds(contactCooldown);
         onCooldown = false;
     }

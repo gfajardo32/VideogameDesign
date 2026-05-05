@@ -21,16 +21,14 @@ public class UIManager : MonoBehaviour
     public GameObject registerBanner;
 
     [Header("Screens")]
+    // Win/Lose are now handled by EndScreen (RuntimeInitialize bootstrap).
+    // These fields are kept for backward compatibility but left unassigned.
     public GameObject winScreen;
     public GameObject loseScreen;
     public GameObject hudPanel;
 
     private Dictionary<string, TextMeshProUGUI> listEntries = new();
-    private Queue<(string msg, float duration)> notifyQueue  = new();
     private Coroutine notifyCoroutine;
-    private Coroutine timerPulseCoroutine;
-    private bool      lowTimeWarningShown = false;
-    private Vector3   timerBaseScale;
 
     void Awake()
     {
@@ -40,19 +38,18 @@ public class UIManager : MonoBehaviour
 
     void Start()
     {
-        if (timerText) timerBaseScale = timerText.transform.localScale;
-
-        if (winScreen)        winScreen.SetActive(false);
-        if (loseScreen)       loseScreen.SetActive(false);
-        if (registerBanner)   registerBanner.SetActive(false);
+        // HUD starts hidden ??? StartScreen shows it when PLAY is pressed
+        if (hudPanel)        hudPanel.SetActive(false);
+        if (winScreen)       winScreen.SetActive(false);
+        if (loseScreen)      loseScreen.SetActive(false);
+        if (registerBanner)  registerBanner.SetActive(false);
         if (notificationText) notificationText.gameObject.SetActive(false);
 
         if (GameManager.Instance != null)
         {
             GameManager.Instance.OnTimerUpdate       += UpdateTimer;
-            GameManager.Instance.OnGameWin           += ShowWin;
-            GameManager.Instance.OnGameLose          += ShowLose;
             GameManager.Instance.OnAllItemsCollected += ShowRegisterBanner;
+            // Win/Lose handled by EndScreen ??? no subscription needed here
         }
 
         if (ShoppingList.Instance != null)
@@ -63,17 +60,12 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    void Update()
-    {
-        UpdateCartStatus();
-    }
-
     void BuildShoppingListUI()
     {
         if (shoppingListContainer == null || listItemPrefab == null) return;
         foreach (string item in ShoppingList.Instance.itemNames)
             AddListEntry(item);
-        UpdateCartStatus();
+        UpdateItemsRemaining();
     }
 
     void AddListEntry(string item)
@@ -89,172 +81,61 @@ public class UIManager : MonoBehaviour
     void UpdateTimer(float t)
     {
         if (timerText == null) return;
-
         int m = Mathf.FloorToInt(t / 60f), s = Mathf.FloorToInt(t % 60f);
-        timerText.text = $"{m:00}:{s:00}";
-
-        if (t < 15f)
-            timerText.color = Color.red;
-        else if (t < 25f)
-            timerText.color = new Color(1f, 0.4f, 0f);
-        else if (t < 45f)
-            timerText.color = new Color(1f, 0.85f, 0f);
-        else
-            timerText.color = Color.white;
-
-        if (t < 15f && timerPulseCoroutine == null)
-            timerPulseCoroutine = StartCoroutine(PulseTimer());
-
-        if (!lowTimeWarningShown && t <= 30f && t > 0f)
-        {
-            lowTimeWarningShown = true;
-            QueueNotification("30 seconds left! Hurry!", 3f);
-        }
-    }
-
-    IEnumerator PulseTimer()
-    {
-        while (GameManager.Instance != null &&
-               GameManager.Instance.GetTimeRemaining() < 15f &&
-               GameManager.Instance.gameActive)
-        {
-            float t = 0f;
-            while (t < 0.15f)
-            {
-                t += Time.deltaTime;
-                timerText.transform.localScale = Vector3.Lerp(timerBaseScale, timerBaseScale * 1.25f, t / 0.15f);
-                yield return null;
-            }
-            t = 0f;
-            while (t < 0.15f)
-            {
-                t += Time.deltaTime;
-                timerText.transform.localScale = Vector3.Lerp(timerBaseScale * 1.25f, timerBaseScale, t / 0.15f);
-                yield return null;
-            }
-        }
-        if (timerText) timerText.transform.localScale = timerBaseScale;
-        timerPulseCoroutine = null;
+        timerText.text  = $"{m:00}:{s:00}";
+        timerText.color = t < 30f ? Color.red : Color.white;
     }
 
     void OnItemCollected(string itemName)
     {
         if (listEntries.TryGetValue(itemName, out var txt))
-            txt.text = $"[In Cart] {itemName}";
-        UpdateCartStatus();
-        if (registerBanner) registerBanner.SetActive(false);
+            txt.text = $"<s>[???] {itemName}</s>";
+        UpdateItemsRemaining();
+        if (registerBanner && ShoppingList.Instance.RemainingCount > 0)
+            registerBanner.SetActive(false);
     }
 
     void OnItemDropped(string itemName)
     {
         if (listEntries.TryGetValue(itemName, out var txt))
-            txt.text = $"[ ] {itemName} - DROPPED!";
-        UpdateCartStatus();
+            txt.text = $"<color=red>[ ] {itemName} ??? dropped!</color>";
+        UpdateItemsRemaining();
         if (registerBanner) registerBanner.SetActive(false);
-        StartCoroutine(FlashListEntry(itemName));
     }
 
-    IEnumerator FlashListEntry(string itemName)
-    {
-        if (!listEntries.TryGetValue(itemName, out var txt)) yield break;
-        for (int i = 0; i < 4; i++)
-        {
-            txt.transform.localScale = Vector3.one * 1.2f;
-            yield return new WaitForSeconds(0.1f);
-            txt.transform.localScale = Vector3.one;
-            yield return new WaitForSeconds(0.1f);
-        }
-    }
-
-    void UpdateCartStatus()
+    void UpdateItemsRemaining()
     {
         if (itemsRemainingText == null || ShoppingList.Instance == null) return;
-        var list = ShoppingList.Instance;
-
-        // Update banked items in list
-        foreach (var kvp in listEntries)
-        {
-            if (list.IsBanked(kvp.Key))
-                kvp.Value.text = $"[DONE] {kvp.Key}";
-        }
-
-        itemsRemainingText.text =
-            $"Cart: {list.InCartCount}/{list.cartCapacity}   " +
-            $"Banked: {list.BankedCount}/{list.TotalCount}";
+        itemsRemainingText.text = $"Items Left: {ShoppingList.Instance.RemainingCount}";
     }
 
     void ShowRegisterBanner()
     {
         if (registerBanner) registerBanner.SetActive(true);
-        QueueNotification("All items collected! Head to the Register!", 4f);
+        ShowNotification("ALL ITEMS COLLECTED! Head to the Register! ????", 4f);
     }
 
-    public void ShowNotification(string msg, float duration) => QueueNotification(msg, duration);
-
-    void QueueNotification(string msg, float duration)
+    public void ShowNotification(string msg, float duration)
     {
-        notifyQueue.Enqueue((msg, duration));
-        if (notifyCoroutine == null)
-            notifyCoroutine = StartCoroutine(ProcessNotifyQueue());
-    }
-
-    IEnumerator ProcessNotifyQueue()
-    {
-        while (notifyQueue.Count > 0)
-        {
-            var (msg, duration) = notifyQueue.Dequeue();
-            yield return StartCoroutine(NotifyRoutine(msg, duration));
-        }
-        notifyCoroutine = null;
+        if (notificationText == null) return;
+        if (notifyCoroutine != null) StopCoroutine(notifyCoroutine);
+        notifyCoroutine = StartCoroutine(NotifyRoutine(msg, duration));
     }
 
     IEnumerator NotifyRoutine(string msg, float duration)
     {
-        if (notificationText == null) yield break;
         notificationText.text = msg;
         notificationText.gameObject.SetActive(true);
         notificationText.alpha = 0f;
-        notificationText.transform.localScale = Vector3.one * 0.8f;
-
         float t = 0f;
-        while (t < 0.2f)
-        {
-            t += Time.deltaTime;
-            float p = t / 0.2f;
-            notificationText.alpha = p;
-            notificationText.transform.localScale = Vector3.Lerp(Vector3.one * 0.8f, Vector3.one, p);
-            yield return null;
-        }
+        while (t < 0.25f) { t += Time.deltaTime; notificationText.alpha = t / 0.25f; yield return null; }
         notificationText.alpha = 1f;
-        notificationText.transform.localScale = Vector3.one;
-
-        yield return new WaitForSeconds(Mathf.Max(0, duration - 0.4f));
-
+        yield return new WaitForSeconds(Mathf.Max(0, duration - 0.5f));
         t = 0f;
-        while (t < 0.2f) { t += Time.deltaTime; notificationText.alpha = 1f - t / 0.2f; yield return null; }
+        while (t < 0.25f) { t += Time.deltaTime; notificationText.alpha = 1f - t / 0.25f; yield return null; }
         notificationText.gameObject.SetActive(false);
     }
 
-    void ShowWin()
-    {
-        StopTimerPulse();
-        if (registerBanner) registerBanner.SetActive(false);
-        if (hudPanel)  hudPanel.SetActive(false);
-        if (winScreen) winScreen.SetActive(true);
-    }
-
-    void ShowLose()
-    {
-        StopTimerPulse();
-        if (hudPanel)   hudPanel.SetActive(false);
-        if (loseScreen) loseScreen.SetActive(true);
-    }
-
-    void StopTimerPulse()
-    {
-        if (timerPulseCoroutine != null) { StopCoroutine(timerPulseCoroutine); timerPulseCoroutine = null; }
-        if (timerText) timerText.transform.localScale = timerBaseScale;
-    }
-
+    // Legacy ??? kept so old scene references don't break, but EndScreen handles this now
     public void OnRestartButton() => GameManager.Instance?.RestartGame();
 }

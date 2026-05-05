@@ -15,8 +15,8 @@ public class ShoppingList : MonoBehaviour
     [Header("Cart")]
     public int cartCapacity = 4;
 
-    private HashSet<string> inCart  = new HashSet<string>(); // currently carrying
-    private HashSet<string> banked  = new HashSet<string>(); // safely deposited at register
+    private HashSet<string> inCart = new HashSet<string>(); // currently carrying
+    private HashSet<string> banked = new HashSet<string>(); // safely deposited at register
 
     public event System.Action<string> OnItemCollected;
     public event System.Action<string> OnItemDropped;
@@ -26,6 +26,14 @@ public class ShoppingList : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+    }
+
+    /// Called by GameManager on level transition to swap in the correct item list.
+    public void SetItems(List<string> newItems)
+    {
+        itemNames = new List<string>(newItems);
+        inCart.Clear();
+        banked.Clear();
     }
 
     public void CollectItem(string itemName)
@@ -44,7 +52,7 @@ public class ShoppingList : MonoBehaviour
         Debug.Log($"[ShoppingList] In cart: {itemName} ({inCart.Count}/{cartCapacity})");
     }
 
-    /// Called by Register — moves everything in cart to banked
+    /// Called by Register ??? moves everything in cart to banked
     public void BankItems()
     {
         foreach (var item in inCart)
@@ -71,6 +79,6 @@ public class ShoppingList : MonoBehaviour
     public int  InCartCount     => inCart.Count;
     public int  BankedCount     => banked.Count;
     public int  TotalCount      => itemNames.Count;
-    public int  RemainingCount  => itemNames.Count - inCart.Count - banked.Count; // still on shelves
+    public int  RemainingCount  => itemNames.Count - inCart.Count - banked.Count;
     public bool IsComplete      => banked.Count >= itemNames.Count;
 }

@@ -51,6 +51,8 @@ public class DropObstacle : MonoBehaviour
             UIManager.Instance?.ShowNotification($"Dropped {item}! Go pick it up!", 3f);
         }
 
+        SfxPlayer.Play("item-drop");
+
         StartCoroutine(CooldownRoutine());
         StartCoroutine(FlashRoutine());
     }

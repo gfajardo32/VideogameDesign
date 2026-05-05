@@ -4,30 +4,42 @@ using UnityEngine;
 public class CartController : MonoBehaviour
 {
     [Header("Movement")]
-    public float moveSpeed     = 5f;
+    public float moveSpeed      = 5f;
     public float slowMultiplier = 0.4f;
 
     [Header("Footsteps")]
     public float footstepInterval = 0.35f;
     [Range(0f, 1f)] public float footstepVolume = 0.5f;
 
+    [Header("Sprites ??? assign via GroceryRush/Assign Sprites")]
+    public Sprite spriteIdleDown;
+    public Sprite spriteIdleUp;
+    public Sprite spriteIdleRight;
+    public Sprite spriteWalkRight;   // flipped for walking left
+    public Sprite spriteWalkUp;
+
     private Rigidbody2D    rb;
     private SpriteRenderer sr;
     private Vector2        moveInput;
-    private bool           isSlowed  = false;
-    private float          slowTimer = 0f;
-    private bool           isFrozen  = false;
+    private bool           isSlowed    = false;
+    private float          slowTimer   = 0f;
+    private bool           isFrozen    = false;
     private float          freezeTimer = 0f;
     private float          footstepTimer = 0f;
+    private Vector2        lastDir     = Vector2.down;
 
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
-        rb.gravityScale   = 0f;
-        rb.freezeRotation = true;
-        rb.linearDamping  = 8f;
-        gameObject.layer  = 6;
+        rb.gravityScale  = 0f;
+        rb.constraints   = RigidbodyConstraints2D.FreezeRotation;
+        rb.linearDamping = 8f;
+        gameObject.layer = 6;
         sr = GetComponent<SpriteRenderer>();
+        if (sr) sr.color = Color.white;
+
+        // Ensure transform rotation is identity ??? no tilt ever
+        transform.rotation = Quaternion.identity;
     }
 
     void Update()
@@ -35,10 +47,10 @@ public class CartController : MonoBehaviour
         if (GameManager.Instance != null && !GameManager.Instance.gameActive)
         {
             moveInput = Vector2.zero;
+            UpdateSprite(Vector2.zero);
             return;
         }
 
-        // Freeze overrides slow
         if (isFrozen)
         {
             freezeTimer -= Time.deltaTime;
@@ -48,6 +60,7 @@ public class CartController : MonoBehaviour
                 isFrozen = false;
                 if (sr) sr.color = Color.white;
             }
+            UpdateSprite(Vector2.zero);
             return;
         }
 
@@ -61,6 +74,7 @@ public class CartController : MonoBehaviour
 
         if (moveInput != Vector2.zero)
         {
+            lastDir = moveInput;
             footstepTimer -= Time.deltaTime;
             if (footstepTimer <= 0f)
             {
@@ -72,23 +86,52 @@ public class CartController : MonoBehaviour
         {
             footstepTimer = 0f;
         }
+
+        UpdateSprite(moveInput);
     }
 
     void FixedUpdate()
     {
-        if (isFrozen)
+        if (isFrozen) { rb.linearVelocity = Vector2.zero; return; }
+        float speed = isSlowed ? moveSpeed * slowMultiplier : moveSpeed;
+        rb.linearVelocity = moveInput * speed;
+        // No rotation ??? sprite direction is handled by UpdateSprite() + flipX
+    }
+
+    void UpdateSprite(Vector2 input)
+    {
+        if (sr == null) return;
+
+        bool moving = input.sqrMagnitude > 0.01f;
+        Vector2 dir = moving ? input : lastDir;
+
+        if (!moving)
         {
-            rb.linearVelocity = Vector2.zero;
+            // Idle: pick directional idle frame
+            if (dir.y > 0.3f && spriteIdleUp != null)
+            { sr.sprite = spriteIdleUp; sr.flipX = false; }
+            else if (Mathf.Abs(dir.x) > Mathf.Abs(dir.y) && spriteIdleRight != null)
+            { sr.sprite = spriteIdleRight; sr.flipX = dir.x < 0; }
+            else if (spriteIdleDown != null)
+            { sr.sprite = spriteIdleDown; sr.flipX = false; }
             return;
         }
 
-        float speed = isSlowed ? moveSpeed * slowMultiplier : moveSpeed;
-        rb.linearVelocity = moveInput * speed;
-
-        if (moveInput != Vector2.zero)
+        // Walking
+        if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y))
         {
-            float angle = Mathf.Atan2(moveInput.y, moveInput.x) * Mathf.Rad2Deg - 90f;
-            rb.rotation = Mathf.LerpAngle(rb.rotation, angle, 0.2f);
+            // Horizontal ??? flip for left
+            if (spriteWalkRight != null) { sr.sprite = spriteWalkRight; sr.flipX = dir.x < 0; }
+        }
+        else if (dir.y > 0)
+        {
+            // Moving up / away from camera
+            if (spriteWalkUp != null) { sr.sprite = spriteWalkUp; sr.flipX = false; }
+        }
+        else
+        {
+            // Moving down / toward camera
+            if (spriteIdleDown != null) { sr.sprite = spriteIdleDown; sr.flipX = false; }
         }
     }
 
@@ -104,6 +147,6 @@ public class CartController : MonoBehaviour
         isFrozen    = true;
         freezeTimer = duration;
         isSlowed    = false;
-        if (sr) sr.color = new Color(0.4f, 0.7f, 1f); // flash blue when frozen
+        if (sr) sr.color = new Color(0.4f, 0.7f, 1f);
     }
 }

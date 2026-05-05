@@ -1,9 +1,6 @@
 using UnityEngine;
 using System.Collections;
 
-/// Pac-Man ghost style security guard.
-/// Always shown as a blue dot — most persistent chaser in the store.
-/// Freezes the player on contact.
 [RequireComponent(typeof(Rigidbody2D))]
 public class SecurityGuard : MonoBehaviour
 {
@@ -11,16 +8,18 @@ public class SecurityGuard : MonoBehaviour
     public float patrolSpeed       = 1.2f;
     public float baseChaseSpeed    = 2.8f;
     public float chaseSpeedPerItem = 0.3f;
+    public float fleeSpeed         = 1.8f;
+    public float fleeDuration      = 5f;
     public float dirChangeInterval = 1.5f;
 
     [Header("Grace Period")]
     public float gracePeriod = 8f;
 
-    [Header("Detection - Pac-Man style")]
+    [Header("Detection")]
     public float detectionRadius    = 6f;
     public float loseInterestRadius = 10f;
     [Range(0f, 1f)]
-    public float loseInterestChance = 0.15f; // very stubborn
+    public float loseInterestChance = 0.15f;
 
     [Header("Contact")]
     public float freezeDuration  = 3f;
@@ -31,20 +30,25 @@ public class SecurityGuard : MonoBehaviour
     public float boundX = 15f;
     public float boundY = 12f;
 
-    private enum AIState { Patrol, Chase }
+    [Header("Sprites ??? assign via GroceryRush/Assign Sprites")]
+    public Sprite spriteWalkRight;
+    public Sprite spriteIdleDown;
+    public Sprite spriteIdleUp;
+
+    private enum AIState { Patrol, Chase, Flee }
     private AIState state = AIState.Patrol;
 
     private Rigidbody2D    rb;
     private SpriteRenderer sr;
     private Transform      player;
     private Vector2        patrolDir;
+    private Vector2        fleeDir;
+    private float          fleeTimer         = 0f;
     private float          dirTimer          = 0f;
     private bool           onCooldown        = false;
     private float          loseInterestTimer = 0f;
     private float          graceTimer        = 0f;
     private bool           graceOver         = false;
-
-    static readonly Color GuardColor = new Color(0.15f, 0.35f, 1f); // blue dot always
 
     void Awake()
     {
@@ -54,7 +58,7 @@ public class SecurityGuard : MonoBehaviour
         rb.linearDamping  = 5f;
         gameObject.layer  = 8;
         sr = GetComponent<SpriteRenderer>();
-        if (sr) sr.color = GuardColor;
+        if (sr) sr.color = Color.white;
         PickNewPatrolDir();
     }
 
@@ -78,17 +82,32 @@ public class SecurityGuard : MonoBehaviour
 
         float dist = Vector2.Distance(rb.position, (Vector2)player.position);
 
+        // ---- Flee overrides everything ----
+        if (state == AIState.Flee)
+        {
+            fleeTimer -= Time.fixedDeltaTime;
+            if (fleeTimer <= 0f)
+            {
+                state = AIState.Patrol;
+                PickNewPatrolDir();
+            }
+            else
+            {
+                Vector2 awayFromPlayer = (rb.position - (Vector2)player.position).normalized;
+                fleeDir = Vector2.Lerp(fleeDir, awayFromPlayer, 3f * Time.fixedDeltaTime).normalized;
+                rb.linearVelocity = fleeDir * fleeSpeed;
+                UpdateSprite(rb.linearVelocity);
+                return;
+            }
+        }
+
         if (graceOver)
         {
             if (state == AIState.Patrol)
             {
-                if (dist < detectionRadius)
-                {
-                    state = AIState.Chase;
-                    loseInterestTimer = 0f;
-                }
+                if (dist < detectionRadius) { state = AIState.Chase; loseInterestTimer = 0f; }
             }
-            else
+            else if (state == AIState.Chase)
             {
                 if (dist < loseInterestRadius)
                 {
@@ -100,15 +119,11 @@ public class SecurityGuard : MonoBehaviour
                     if (loseInterestTimer >= 1f)
                     {
                         loseInterestTimer = 0f;
-                        if (Random.value < loseInterestChance)
-                            state = AIState.Patrol;
+                        if (Random.value < loseInterestChance) state = AIState.Patrol;
                     }
                 }
             }
         }
-
-        // Always blue — no color change, but you'll know it's the guard
-        if (sr) sr.color = GuardColor;
 
         Vector2 moveVelocity;
 
@@ -132,21 +147,49 @@ public class SecurityGuard : MonoBehaviour
         }
 
         rb.linearVelocity = moveVelocity;
+        UpdateSprite(moveVelocity);
 
         if (!onCooldown && dist < contactRadius)
             StartCoroutine(TriggerContact());
     }
 
+    void UpdateSprite(Vector2 vel)
+    {
+        if (sr == null) return;
+        bool moving = vel.sqrMagnitude > 0.05f;
+
+        if (!moving)
+        {
+            if (spriteIdleDown) { sr.sprite = spriteIdleDown; sr.flipX = false; }
+            return;
+        }
+
+        if (Mathf.Abs(vel.x) >= Mathf.Abs(vel.y))
+        {
+            if (spriteWalkRight) { sr.sprite = spriteWalkRight; sr.flipX = vel.x < 0; }
+        }
+        else if (vel.y > 0)
+        {
+            if (spriteIdleUp) { sr.sprite = spriteIdleUp; sr.flipX = false; }
+        }
+        else
+        {
+            if (spriteIdleDown) { sr.sprite = spriteIdleDown; sr.flipX = false; }
+        }
+    }
+
     IEnumerator TriggerContact()
     {
         onCooldown = true;
-        state = AIState.Patrol;
-        PickNewPatrolDir();
 
         CartController cart = player?.GetComponent<CartController>();
         if (cart != null) cart.ApplyFreeze(freezeDuration);
-
         UIManager.Instance?.ShowNotification($"Busted! Frozen for {(int)freezeDuration}s!", 3f);
+
+        // Walk away from the player for fleeDuration seconds
+        fleeDir   = (rb.position - (Vector2)player.position).normalized;
+        fleeTimer = fleeDuration;
+        state     = AIState.Flee;
 
         yield return new WaitForSeconds(contactCooldown);
         onCooldown = false;
